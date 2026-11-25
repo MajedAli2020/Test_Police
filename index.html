@@ -1,0 +1,327 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>لوحة مدراء القطاعات</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;700;800&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#0e1118; --panel:#161b26; --panel2:#1c2231; --line:#262e41;
+    --text:#e8ecf4; --muted:#8b95ad; --accent:#5865f2; --accent2:#7a85ff;
+    --ok:#3ecf8e; --warn:#f5a524; --bad:#f0556a;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0}
+  body{background:var(--bg);color:var(--text);font-family:'Tajawal',system-ui,sans-serif;font-size:15px;line-height:1.55;min-height:100vh}
+  button,input,select{font:inherit;color:inherit}
+  .hidden{display:none!important}
+  .wrap{max-width:1150px;margin:0 auto;padding:0 16px 48px}
+
+  /* login */
+  .login{min-height:100vh;display:grid;place-items:center;padding:20px}
+  .login-card{background:var(--panel);border:1px solid var(--line);border-radius:18px;padding:40px 32px;max-width:400px;width:100%;text-align:center}
+  .login-card h1{margin:0 0 8px;font-size:26px;font-weight:800}
+  .login-card p{color:var(--muted);margin:0 0 28px}
+
+  .btn{border:0;border-radius:10px;padding:10px 18px;cursor:pointer;font-weight:700;background:var(--panel2);border:1px solid var(--line);transition:.15s}
+  .btn:hover{border-color:var(--accent2)}
+  .btn.primary{background:var(--accent);border-color:var(--accent);color:#fff}
+  .btn.primary:hover{background:var(--accent2)}
+  .btn.danger{color:var(--bad)}
+  .btn.sm{padding:5px 11px;font-size:13px;border-radius:8px}
+  a.btn{display:inline-block;text-decoration:none}
+
+  /* header */
+  header{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:18px 0;flex-wrap:wrap}
+  header h1{margin:0;font-size:20px;font-weight:800}
+  .who{display:flex;align-items:center;gap:10px}
+  .who img{width:34px;height:34px;border-radius:50%;background:var(--panel2)}
+  .who span{font-weight:700}
+
+  .tabs{display:flex;gap:6px;border-bottom:1px solid var(--line);margin-bottom:20px;flex-wrap:wrap}
+  .tab{background:none;border:0;padding:10px 16px;cursor:pointer;color:var(--muted);font-weight:700;border-bottom:2px solid transparent}
+  .tab.on{color:var(--text);border-color:var(--accent)}
+
+  .bar{display:flex;gap:10px;align-items:center;margin-bottom:18px;flex-wrap:wrap}
+  select,input[type=text]{background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:9px 12px;min-width:0}
+  select:focus,input:focus{outline:2px solid var(--accent);outline-offset:-1px}
+  .live-dot{display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--ok);margin-inline-end:6px;box-shadow:0 0 0 0 rgba(62,207,142,.7);animation:pulse 1.8s infinite}
+  @keyframes pulse{70%{box-shadow:0 0 0 8px rgba(62,207,142,0)}100%{box-shadow:0 0 0 0 rgba(62,207,142,0)}}
+  .upd{color:var(--muted);font-size:13px;margin-inline-start:auto}
+
+  .cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:12px;margin-bottom:22px}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:16px}
+  .card .l{color:var(--muted);font-size:13px;margin-bottom:6px}
+  .card .v{font-size:28px;font-weight:800}
+  .card .s{color:var(--muted);font-size:12px;margin-top:2px}
+  .v.ok{color:var(--ok)} .v.warn{color:var(--warn)}
+
+  section.box{background:var(--panel);border:1px solid var(--line);border-radius:14px;margin-bottom:20px;overflow:hidden}
+  section.box>h2{margin:0;padding:14px 18px;font-size:16px;font-weight:800;border-bottom:1px solid var(--line);display:flex;align-items:center;justify-content:space-between}
+  .scroll{overflow-x:auto}
+  table{width:100%;border-collapse:collapse;min-width:560px}
+  th,td{padding:11px 16px;text-align:start;border-bottom:1px solid var(--line);white-space:nowrap}
+  th{color:var(--muted);font-size:13px;font-weight:500;background:var(--panel2)}
+  tr:last-child td{border-bottom:0}
+  .person{display:flex;align-items:center;gap:10px}
+  .person img{width:30px;height:30px;border-radius:50%;background:var(--panel2)}
+  .pill{display:inline-block;padding:2px 10px;border-radius:99px;font-size:12px;font-weight:700}
+  .pill.on{background:rgba(62,207,142,.15);color:var(--ok)}
+  .pill.off{background:var(--panel2);color:var(--muted)}
+  .pill.off{border:1px solid var(--line)}
+  .pill.off.w{color:var(--warn);border-color:var(--warn);background:transparent}
+  .pill.off.of{color:var(--accent2);border-color:var(--accent2);background:transparent}
+  .empty{padding:26px;text-align:center;color:var(--muted)}
+
+  .warn-item{display:flex;gap:14px;align-items:flex-start;justify-content:space-between;padding:13px 18px;border-bottom:1px solid var(--line)}
+  .warn-item:last-child{border-bottom:0}
+  .warn-item .r{margin-top:2px}
+  .warn-item .m{color:var(--muted);font-size:12px;margin-top:3px}
+  .form-row{display:flex;gap:8px;padding:14px 18px;border-bottom:1px solid var(--line);flex-wrap:wrap}
+  .form-row input{flex:1;min-width:140px}
+
+  /* admin */
+  .row{display:flex;gap:10px;align-items:center;padding:13px 18px;border-bottom:1px solid var(--line);flex-wrap:wrap}
+  .row:last-child{border-bottom:0}
+  .row .grow{flex:1;min-width:150px}
+  .lab{color:var(--muted);font-size:12px;display:block;margin-bottom:3px}
+  .chk{display:inline-flex;align-items:center;gap:6px;background:var(--panel2);border:1px solid var(--line);border-radius:8px;padding:5px 10px;cursor:pointer;font-size:13px}
+  .chk input{accent-color:var(--accent)}
+  .hint{padding:12px 18px;color:var(--muted);font-size:13px;border-bottom:1px solid var(--line)}
+
+  #toast{position:fixed;bottom:22px;left:50%;transform:translateX(-50%);background:var(--panel2);border:1px solid var(--line);padding:10px 18px;border-radius:10px;z-index:9;box-shadow:0 8px 30px rgba(0,0,0,.4)}
+  #toast.err{border-color:var(--bad);color:var(--bad)}
+</style>
+</head>
+<body>
+
+<div id="login" class="login hidden">
+  <div class="login-card">
+    <h1>لوحة مدراء القطاعات</h1>
+    <p>سجّل دخولك بحساب دسكورد للوصول إلى إحصائيات قطاعك.</p>
+    <a class="btn primary" href="/login">تسجيل الدخول عبر Discord</a>
+  </div>
+</div>
+
+<div id="app" class="wrap hidden">
+  <header>
+    <h1>لوحة مدراء القطاعات</h1>
+    <div class="who">
+      <img id="avatar" alt="">
+      <span id="uname"></span>
+      <a class="btn sm" href="/logout">خروج</a>
+    </div>
+  </header>
+
+  <div class="tabs">
+    <button class="tab on" data-tab="sector">لوحة القطاع</button>
+    <button class="tab hidden" id="adminTab" data-tab="admin">الإدارة (المالك)</button>
+  </div>
+
+  <div id="view-sector">
+    <div id="noAccess" class="empty hidden">ما عندك صلاحية على أي قطاع حالياً. تواصل مع المالك ليضيفك.</div>
+    <div id="sectorBody" class="hidden">
+      <div class="bar">
+        <select id="sectorSelect"></select>
+        <span class="upd"><span class="live-dot"></span><span id="updTxt">مباشر</span></span>
+      </div>
+      <div class="cards" id="cards"></div>
+      <section class="box"><h2>الشغالين الحين (مباشرة)</h2><div id="liveBox"></div></section>
+      <section class="box"><h2>أفراد القطاع <span id="memCount" class="pill off"></span></h2><div class="scroll" id="membersBox"></div></section>
+      <section class="box"><h2>التحذيرات</h2><div id="warnForm"></div><div id="warnBox"></div></section>
+    </div>
+  </div>
+
+  <div id="view-admin" class="hidden">
+    <section class="box">
+      <h2>القطاعات</h2>
+      <div class="hint">كل قطاع مرتبط برتبة دسكورد (رتبة الأعضاء). رتبة الضباط اختيارية وتُستخدم لعدّ الضباط.</div>
+      <div id="sectorsAdmin"></div>
+    </section>
+    <section class="box">
+      <h2>المدراء والصلاحيات</h2>
+      <div class="hint">حدّد من يقدر يشوف أي قطاع، ومن يقدر يعدّل (إضافة/حذف تحذيرات وإنهاء مباشرة أحد). المالك يشوف ويعدّل كل شيء تلقائياً.</div>
+      <div id="usersAdmin"></div>
+    </section>
+  </div>
+</div>
+
+<div id="toast" class="hidden"></div>
+
+<script>
+const $ = s => document.querySelector(s);
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const dur = sec => { const h = Math.floor(sec/3600), m = Math.floor(sec%3600/60); return h + 'س ' + m + 'د'; };
+const ago = ms => { const m = Math.floor((Date.now()-ms)/60000); return m < 1 ? 'الحين' : m < 60 ? 'من '+m+' د' : 'من '+Math.floor(m/60)+'س '+(m%60)+'د'; };
+const fdate = ms => new Date(ms).toLocaleString('ar-SA', {dateStyle:'medium', timeStyle:'short'});
+
+let me = null, cur = null, adminData = null, timer = null;
+
+function toast(msg, err) {
+  const t = $('#toast'); t.textContent = msg; t.className = err ? 'err' : '';
+  clearTimeout(toast.t); toast.t = setTimeout(() => t.classList.add('hidden'), 3000);
+}
+function showLogin() { $('#login').classList.remove('hidden'); $('#app').classList.add('hidden'); clearInterval(timer); }
+
+async function api(path, o = {}) {
+  const r = await fetch(path, {
+    method: o.method || 'GET',
+    headers: o.body ? {'Content-Type': 'application/json'} : undefined,
+    body: o.body ? JSON.stringify(o.body) : undefined,
+  });
+  if (r.status === 401) { showLogin(); throw new Error('401'); }
+  const d = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(d.error || 'صار خطأ');
+  return d;
+}
+const act = async fn => { try { await fn(); } catch (e) { if (e.message !== '401') toast(e.message, true); } };
+
+/* ------------------------------ البداية ------------------------------ */
+async function init() {
+  try { me = await api('/api/me'); } catch { return; }
+  $('#login').classList.add('hidden'); $('#app').classList.remove('hidden');
+  $('#uname').textContent = me.user.name;
+  if (me.user.avatar) $('#avatar').src = me.user.avatar;
+  if (me.owner) $('#adminTab').classList.remove('hidden');
+  buildSelect();
+  if (me.sectors.length) { await loadStats(); }
+  clearInterval(timer);
+  timer = setInterval(() => { if (!$('#view-sector').classList.contains('hidden') && cur) loadStats(true); }, 15000);
+}
+
+function buildSelect() {
+  const has = me.sectors.length > 0;
+  $('#noAccess').classList.toggle('hidden', has);
+  $('#sectorBody').classList.toggle('hidden', !has);
+  if (!has) return;
+  if (!cur || !me.sectors.some(s => s.id === cur)) cur = me.sectors[0].id;
+  $('#sectorSelect').innerHTML = me.sectors.map(s => `<option value="${esc(s.id)}" ${s.id === cur ? 'selected' : ''}>${esc(s.name)}</option>`).join('');
+}
+$('#sectorSelect').addEventListener('change', e => { cur = e.target.value; act(() => loadStats()); });
+
+document.querySelectorAll('.tab').forEach(b => b.addEventListener('click', () => {
+  document.querySelectorAll('.tab').forEach(x => x.classList.toggle('on', x === b));
+  const admin = b.dataset.tab === 'admin';
+  $('#view-sector').classList.toggle('hidden', admin);
+  $('#view-admin').classList.toggle('hidden', !admin);
+  if (admin) act(loadAdmin);
+}));
+
+/* ------------------------------ لوحة القطاع ------------------------------ */
+async function loadStats(silent) {
+  try {
+    const st = await api('/api/sectors/' + cur + '/stats');
+    renderStats(st);
+    $('#updTxt').textContent = 'مباشر · آخر تحديث ' + new Date().toLocaleTimeString('ar-SA', {hour:'2-digit', minute:'2-digit', second:'2-digit'});
+  } catch (e) { if (!silent && e.message !== '401') toast(e.message, true); }
+}
+
+function renderStats(st) {
+  const t = st.totals;
+  $('#cards').innerHTML = [
+    ['على المباشرة الحين', t.onDuty, 'من ' + t.members + ' فرد', 'ok'],
+    ['إجمالي الساعات', dur(t.totalSec), 'كل الأوقات', ''],
+    ['ساعات آخر 7 أيام', dur(t.weekSec), 'هذا الأسبوع', ''],
+    ['أفراد القطاع', t.members, '', ''],
+    ['الضباط', t.officers, '', ''],
+    ['التحذيرات', t.warnings, 'على القطاع', t.warnings ? 'warn' : ''],
+  ].map(([l, v, s, c]) => `<div class="card"><div class="l">${l}</div><div class="v ${c}">${esc(v)}</div><div class="s">${esc(s)}</div></div>`).join('');
+
+  const live = st.members.filter(m => m.onDuty);
+  $('#liveBox').innerHTML = live.length
+    ? `<div class="scroll"><table><thead><tr><th>العضو</th><th>بدأ</th>${st.canEdit ? '<th></th>' : ''}</tr></thead><tbody>` +
+      live.map(m => `<tr><td>${person(m)}</td><td>${ago(m.since)}</td>${st.canEdit ? `<td><button class="btn sm danger" data-end="${esc(m.id)}">إنهاء مباشرته</button></td>` : ''}</tr>`).join('') + '</tbody></table></div>'
+    : '<div class="empty">ما فيه أحد على المباشرة الحين.</div>';
+
+  $('#memCount').textContent = st.members.length;
+  $('#membersBox').innerHTML = st.members.length
+    ? '<table><thead><tr><th>العضو</th><th>الحالة</th><th>ساعات الأسبوع</th><th>إجمالي الساعات</th><th>التحذيرات</th></tr></thead><tbody>' +
+      st.members.map(m => `<tr><td>${person(m)}</td><td>${m.onDuty ? '<span class="pill on">مباشر</span>' : '<span class="pill off">غير مباشر</span>'}</td><td>${dur(m.weekSec)}</td><td>${dur(m.totalSec)}</td><td>${m.warns ? `<span class="pill off w">${m.warns}</span>` : '0'}</td></tr>`).join('') + '</tbody></table>'
+    : '<div class="empty">ما فيه أعضاء. تأكد أن رتبة القطاع صحيحة وأن البوت يشوف الأعضاء.</div>';
+
+  $('#warnForm').innerHTML = st.canEdit
+    ? `<div class="form-row"><input type="text" id="wUser" placeholder="ايدي العضو (Discord ID)" inputmode="numeric"><input type="text" id="wReason" placeholder="سبب التحذير"><button class="btn primary" id="wAdd">إضافة تحذير</button></div>` : '';
+  $('#warnBox').innerHTML = st.warnings.length
+    ? st.warnings.map(w => `<div class="warn-item"><div><b>${esc(w.name)}</b><div class="r">${esc(w.reason)}</div><div class="m">بواسطة ${esc(w.by)} · ${fdate(w.at)}</div></div>${st.canEdit ? `<button class="btn sm danger" data-delw="${esc(w.id)}">حذف</button>` : ''}</div>`).join('')
+    : '<div class="empty">ما فيه تحذيرات على القطاع.</div>';
+}
+const person = m => `<div class="person"><img src="${esc(m.avatar)}" alt=""><span>${esc(m.name)}</span>${m.isOfficer ? ' <span class="pill off of">ضابط</span>' : ''}</div>`;
+
+$('#view-sector').addEventListener('click', e => {
+  const b = e.target.closest('button'); if (!b) return;
+  if (b.id === 'wAdd') act(async () => {
+    await api('/api/sectors/' + cur + '/warnings', {method: 'POST', body: {userId: $('#wUser').value.trim(), reason: $('#wReason').value}});
+    toast('تمت إضافة التحذير'); await loadStats();
+  });
+  if (b.dataset.delw && confirm('حذف هذا التحذير؟')) act(async () => {
+    await api('/api/sectors/' + cur + '/warnings/' + b.dataset.delw, {method: 'DELETE'}); await loadStats();
+  });
+  if (b.dataset.end && confirm('إنهاء مباشرة هذا العضو؟')) act(async () => {
+    await api('/api/sectors/' + cur + '/members/' + b.dataset.end + '/endduty', {method: 'POST'}); await loadStats();
+  });
+});
+
+/* ------------------------------ لوحة المالك ------------------------------ */
+async function loadAdmin() {
+  adminData = await api('/api/admin/data');
+  renderAdmin();
+}
+const roleOpts = (sel, none) => (none ? `<option value="">— بدون —</option>` : '<option value="">اختر رتبة…</option>') +
+  adminData.roles.map(r => `<option value="${esc(r.id)}" ${r.id === sel ? 'selected' : ''}>${esc(r.name)}</option>`).join('');
+
+function renderAdmin() {
+  $('#sectorsAdmin').innerHTML = adminData.sectors.map(s => `
+    <div class="row" data-sid="${esc(s.id)}">
+      <div class="grow"><span class="lab">اسم القطاع</span><input type="text" class="s-name" value="${esc(s.name)}" style="width:100%"></div>
+      <div class="grow"><span class="lab">رتبة الأعضاء</span><select class="s-role" style="width:100%">${roleOpts(s.roleId)}</select></div>
+      <div class="grow"><span class="lab">رتبة الضباط</span><select class="s-off" style="width:100%">${roleOpts(s.officerRoleId, true)}</select></div>
+      <button class="btn sm primary" data-save-sector>حفظ</button>
+      <button class="btn sm danger" data-del-sector>حذف</button>
+    </div>`).join('') + `
+    <div class="row" data-new-sector>
+      <div class="grow"><span class="lab">قطاع جديد</span><input type="text" class="s-name" placeholder="اسم القطاع" style="width:100%"></div>
+      <div class="grow"><span class="lab">رتبة الأعضاء</span><select class="s-role" style="width:100%">${roleOpts('')}</select></div>
+      <div class="grow"><span class="lab">رتبة الضباط</span><select class="s-off" style="width:100%">${roleOpts('', true)}</select></div>
+      <button class="btn sm primary" data-add-sector>إضافة قطاع</button>
+    </div>`;
+
+  const secChecks = sel => adminData.sectors.length
+    ? adminData.sectors.map(s => `<label class="chk"><input type="checkbox" class="u-sec" value="${esc(s.id)}" ${sel.includes(s.id) ? 'checked' : ''}>${esc(s.name)}</label>`).join('')
+    : '<span class="lab">أضف قطاعات أولاً</span>';
+  $('#usersAdmin').innerHTML = adminData.users.map(u => `
+    <div class="row" data-uid="${esc(u.id)}">
+      <div class="grow"><b>${esc(u.name)}</b><span class="lab" dir="ltr" style="text-align:right">${esc(u.id)}</span></div>
+      <div class="grow" style="display:flex;gap:6px;flex-wrap:wrap">${secChecks(u.sectors)}</div>
+      <label class="chk"><input type="checkbox" class="u-edit" ${u.canEdit ? 'checked' : ''}>يقدر يعدّل</label>
+      <button class="btn sm primary" data-save-user>حفظ</button>
+      <button class="btn sm danger" data-del-user>إزالة</button>
+    </div>`).join('') + `
+    <div class="row" data-new-user>
+      <div class="grow"><span class="lab">إضافة مدير جديد</span><input type="text" class="u-id" placeholder="ايدي دسكورد" inputmode="numeric" style="width:100%"></div>
+      <div class="grow" style="display:flex;gap:6px;flex-wrap:wrap">${secChecks([])}</div>
+      <label class="chk"><input type="checkbox" class="u-edit">يقدر يعدّل</label>
+      <button class="btn sm primary" data-add-user>إضافة</button>
+    </div>`;
+}
+
+$('#view-admin').addEventListener('click', e => {
+  const b = e.target.closest('button'); if (!b) return;
+  const row = b.closest('.row');
+  const sectorBody = () => ({name: row.querySelector('.s-name').value, roleId: row.querySelector('.s-role').value, officerRoleId: row.querySelector('.s-off').value});
+  const userBody = () => ({sectors: [...row.querySelectorAll('.u-sec:checked')].map(x => x.value), canEdit: row.querySelector('.u-edit').checked});
+  const done = async msg => { toast(msg); await loadAdmin(); me = await api('/api/me'); buildSelect(); if (me.sectors.length) loadStats(true); };
+
+  if (b.hasAttribute('data-add-sector')) act(async () => { await api('/api/admin/sectors', {method: 'POST', body: sectorBody()}); await done('تمت إضافة القطاع'); });
+  if (b.hasAttribute('data-save-sector')) act(async () => { await api('/api/admin/sectors/' + row.dataset.sid, {method: 'PUT', body: sectorBody()}); await done('تم الحفظ'); });
+  if (b.hasAttribute('data-del-sector') && confirm('حذف القطاع مع كل ساعاته وتحذيراته؟')) act(async () => { await api('/api/admin/sectors/' + row.dataset.sid, {method: 'DELETE'}); await done('تم حذف القطاع'); });
+  if (b.hasAttribute('data-add-user')) act(async () => { await api('/api/admin/users/' + row.querySelector('.u-id').value.trim(), {method: 'PUT', body: userBody()}); await done('تمت إضافة المدير'); });
+  if (b.hasAttribute('data-save-user')) act(async () => { await api('/api/admin/users/' + row.dataset.uid, {method: 'PUT', body: userBody()}); await done('تم حفظ الصلاحيات'); });
+  if (b.hasAttribute('data-del-user') && confirm('إزالة هذا المدير؟')) act(async () => { await api('/api/admin/users/' + row.dataset.uid, {method: 'DELETE'}); await done('تمت الإزالة'); });
+});
+
+init();
+</script>
+</body>
+</html>

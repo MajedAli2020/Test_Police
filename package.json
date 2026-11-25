@@ -1,0 +1,14 @@
+{
+  "name": "sector-dashboard",
+  "version": "1.0.0",
+  "description": "لوحة مدراء القطاعات مرتبطة ببوت دسكورد",
+  "main": "server.js",
+  "scripts": {
+    "start": "node --env-file=.env server.js"
+  },
+  "engines": { "node": ">=20.6" },
+  "dependencies": {
+    "discord.js": "^14.16.0",
+    "express": "^4.19.2"
+  }
+}
