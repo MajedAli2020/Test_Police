@@ -1,7 +1,7 @@
 'use strict';
 /**
  * لوحة مدراء القطاعات - سيرفر + بوت دسكورد في تطبيق واحد
- * تشغيل:  node --env-file=.env server.js
+ * محلياً:  npm run dev      |  على Render:  node server.js
  */
 const express = require('express');
 const crypto = require('crypto');
@@ -15,22 +15,36 @@ const CFG = {
   clientId: process.env.CLIENT_ID,
   clientSecret: process.env.CLIENT_SECRET,
   guildId: process.env.GUILD_ID,
-  baseUrl: (process.env.BASE_URL || 'http://localhost:3000').replace(/\/$/, ''),
+  baseUrl: (process.env.BASE_URL || process.env.RENDER_EXTERNAL_URL || 'http://localhost:3000').replace(/\/$/, ''),
   secret: process.env.SESSION_SECRET || 'change-this-secret',
   port: Number(process.env.PORT) || 3000,
   owner: String(process.env.OWNER_ID || '1241144201199226965'),
+  dataDir: process.env.DATA_DIR || path.join(__dirname, 'data'),
 };
 for (const k of ['token', 'clientId', 'clientSecret', 'guildId']) {
-  if (!CFG[k]) { console.error('متغير ناقص في ملف .env: ' + k); process.exit(1); }
+  if (!CFG[k]) { console.error('متغير ناقص: ' + k); process.exit(1); }
 }
-if (CFG.secret === 'change-this-secret') console.warn('تنبيه: غيّر SESSION_SECRET في .env');
+if (CFG.secret === 'change-this-secret') console.warn('تنبيه: غيّر SESSION_SECRET');
 
 /* ----------------------------- قاعدة البيانات ----------------------------- */
-const DATA_DIR = path.join(__dirname, 'data');
-const DB_FILE = path.join(DATA_DIR, 'db.json');
-fs.mkdirSync(DATA_DIR, { recursive: true });
-let db = { sectors: [], users: {}, shifts: [], warnings: [] };
+const DB_FILE = path.join(CFG.dataDir, 'db.json');
+const UP_DIR = path.join(CFG.dataDir, 'uploads');
+fs.mkdirSync(UP_DIR, { recursive: true });
+
+const DEFAULT_SETTINGS = {
+  siteName: 'لوحة مدراء القطاعات',
+  accent: '#5865f2',
+  overlay: 85,
+  logo: '',
+  loginBg: '',
+  dashBg: '',
+  webhook: { url: '', duty: true, warnings: true },
+};
+let db = { sectors: [], users: {}, shifts: [], warnings: [], settings: {} };
 try { db = Object.assign(db, JSON.parse(fs.readFileSync(DB_FILE, 'utf8'))); } catch { /* أول تشغيل */ }
+db.settings = Object.assign({}, DEFAULT_SETTINGS, db.settings || {});
+db.settings.webhook = Object.assign({}, DEFAULT_SETTINGS.webhook, db.settings.webhook || {});
+
 let saveTimer = null;
 function save() {
   clearTimeout(saveTimer);
@@ -71,6 +85,31 @@ const nameOf = (g, id) => {
   return u ? u.globalName || u.username : id;
 };
 
+/* ------------------------------- ويب هوك ------------------------------- */
+const WEBHOOK_RE = /^https:\/\/((ptb|canary)\.)?(discord|discordapp)\.com\/api\/webhooks\/\d+\/[\w-]+\/?$/;
+const COLORS = { green: 0x3ecf8e, red: 0xf0556a, amber: 0xf5a524, blue: 0x5865f2 };
+
+async function postWebhook(payload) {
+  const w = db.settings.webhook;
+  if (!w || !w.url) return { ok: false, error: 'ما فيه رابط ويب هوك' };
+  const body = Object.assign({ username: db.settings.siteName.slice(0, 80), allowed_mentions: { parse: [] } }, payload);
+  if (db.settings.logo && CFG.baseUrl.startsWith('https')) body.avatar_url = CFG.baseUrl + db.settings.logo;
+  try {
+    const r = await fetch(w.url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+    return { ok: r.ok, status: r.status };
+  } catch (e) {
+    return { ok: false, error: e.message };
+  }
+}
+function notify(type, e) {
+  const w = db.settings.webhook;
+  if (!w || !w.url || !w[type]) return;
+  postWebhook({ embeds: [{ title: e.title, description: e.description, color: e.color, fields: e.fields, timestamp: new Date().toISOString() }] })
+    .then((r) => { if (!r.ok) console.error('فشل الويب هوك', r.status || r.error); });
+}
+const tnow = () => `<t:${Math.floor(Date.now() / 1000)}:t>`;
+
+/* -------------------------------- إحصائيات -------------------------------- */
 async function sectorStats(sec) {
   const g = await getGuild();
   const now = Date.now();
@@ -143,13 +182,18 @@ const COMMANDS = [
   },
 ];
 
-client.once('clientReady', async () => {
+let booted = false;
+async function boot() {
+  if (booted) return;
+  booted = true;
   console.log('البوت شغال: ' + client.user.tag);
   const g = client.guilds.cache.get(CFG.guildId);
   if (!g) return console.error('البوت مو موجود في السيرفر GUILD_ID');
   await g.commands.set(COMMANDS).catch((e) => console.error('فشل تسجيل الأوامر', e.message));
   await getGuild();
-});
+}
+client.once('clientReady', boot);
+client.once('ready', boot);
 
 client.on('interactionCreate', async (i) => {
   if (!i.isChatInputCommand() || i.guildId !== CFG.guildId) return;
@@ -162,6 +206,10 @@ client.on('interactionCreate', async (i) => {
       if (db.shifts.some((s) => s.userId === i.user.id && !s.end)) return say('⚠️ انت مباشر بالفعل.');
       db.shifts.push({ id: uid(), sectorId: sec.id, userId: i.user.id, start: Date.now(), end: null });
       save();
+      notify('duty', {
+        title: 'بدء مباشرة', color: COLORS.green, description: `<@${i.user.id}>`,
+        fields: [{ name: 'القطاع', value: sec.name, inline: true }, { name: 'الوقت', value: tnow(), inline: true }],
+      });
       return say(`✅ بدأت مباشرتك في قطاع **${sec.name}**.`);
     }
 
@@ -171,6 +219,14 @@ client.on('interactionCreate', async (i) => {
       open.end = Date.now();
       save();
       const mins = Math.round((open.end - open.start) / 60000);
+      const s2 = db.sectors.find((s) => s.id === open.sectorId);
+      notify('duty', {
+        title: 'إنهاء مباشرة', color: COLORS.red, description: `<@${i.user.id}>`,
+        fields: [
+          { name: 'القطاع', value: s2 ? s2.name : '-', inline: true },
+          { name: 'المدة', value: `${Math.floor(mins / 60)}س ${mins % 60}د`, inline: true },
+        ],
+      });
       return say(`✅ انتهت مباشرتك. المدة: **${Math.floor(mins / 60)}س ${mins % 60}د**.`);
     }
 
@@ -188,11 +244,17 @@ client.on('interactionCreate', async (i) => {
       const tsec = db.sectors.find((s) => target.roles.cache.has(s.roleId));
       if (!tsec) return say('❌ هذا العضو مو تابع لأي قطاع.');
       if (!canEdit(i.user.id, tsec.id)) return say('❌ ما عندك صلاحية تعديل على هذا القطاع.');
-      db.warnings.push({
-        id: uid(), sectorId: tsec.id, userId: target.id,
-        reason: i.options.getString('reason').slice(0, 300), by: i.user.id, at: Date.now(),
-      });
+      const reason = i.options.getString('reason').slice(0, 300);
+      db.warnings.push({ id: uid(), sectorId: tsec.id, userId: target.id, reason, by: i.user.id, at: Date.now() });
       save();
+      notify('warnings', {
+        title: 'تحذير جديد', color: COLORS.amber, description: `<@${target.id}>`,
+        fields: [
+          { name: 'القطاع', value: tsec.name, inline: true },
+          { name: 'بواسطة', value: `<@${i.user.id}>`, inline: true },
+          { name: 'السبب', value: reason },
+        ],
+      });
       return say(`⚠️ تم تحذير <@${target.id}> في قطاع **${tsec.name}**.`);
     }
   } catch (e) {
@@ -233,7 +295,12 @@ function setCookie(res, name, val, maxAge) {
 
 const app = express();
 app.disable('x-powered-by');
+app.set('trust proxy', 1);
+// رفع الصور يحتاج حجم أكبر، لازم يكون قبل المحلل العام
+app.use('/api/admin/upload', express.json({ limit: '12mb' }));
 app.use(express.json({ limit: '50kb' }));
+
+app.get('/healthz', (req, res) => res.send('ok'));
 
 /* ----------------------------- تسجيل الدخول ----------------------------- */
 app.get('/login', (req, res) => {
@@ -269,8 +336,10 @@ app.get('/callback', async (req, res) => {
       avatar: u.avatar ? `https://cdn.discordapp.com/avatars/${u.id}/${u.avatar}.png?size=64` : null,
       exp: Date.now() + 7 * 864e5,
     }), 7 * 86400);
+    const next = cookies(req).next;
     setCookie(res, 'oauth_state', '', 0);
-    res.redirect('/');
+    setCookie(res, 'next', '', 0);
+    res.redirect(next === '/admin' ? '/admin' : '/');
   } catch (e) {
     console.error(e);
     res.status(500).send('فشل تسجيل الدخول عبر دسكورد.');
@@ -288,7 +357,22 @@ const auth = (req, res, next) => {
 const ownerOnly = (req, res, next) =>
   isOwner(req.user.id) ? next() : res.status(403).json({ error: 'للمالك فقط' });
 
+/* صفحة الإدارة: ملف منفصل ولا تُعرض إلا للمالك */
+app.get('/admin', (req, res) => {
+  const u = verify(cookies(req).sid);
+  if (!u) { setCookie(res, 'next', '/admin', 600); return res.redirect('/login'); }
+  if (!isOwner(u.id)) return res.redirect('/');
+  res.sendFile(path.join(__dirname, 'views', 'admin.html'));
+});
+
 /* ---------------------------------- API ---------------------------------- */
+// المظهر العام (يُستخدم في صفحة الدخول أيضاً، بدون الويب هوك)
+app.get('/api/branding', (req, res) => {
+  const s = db.settings;
+  res.set('Cache-Control', 'no-store');
+  res.json({ siteName: s.siteName, accent: s.accent, overlay: s.overlay, logo: s.logo, loginBg: s.loginBg, dashBg: s.dashBg });
+});
+
 app.get('/api/me', auth, (req, res) => {
   const ids = userSectors(req.user.id);
   res.json({
@@ -306,28 +390,58 @@ app.get('/api/sectors/:id/stats', auth, async (req, res) => {
   res.json(st);
 });
 
-app.post('/api/sectors/:id/warnings', auth, (req, res) => {
+app.post('/api/sectors/:id/warnings', auth, async (req, res) => {
   const sid = req.params.id;
-  if (!db.sectors.some((s) => s.id === sid)) return res.status(404).json({ error: 'قطاع غير موجود' });
+  const sec = db.sectors.find((s) => s.id === sid);
+  if (!sec) return res.status(404).json({ error: 'قطاع غير موجود' });
   if (!canEdit(req.user.id, sid)) return res.status(403).json({ error: 'ما عندك صلاحية تعديل' });
   const { userId, reason } = req.body || {};
   if (!isId(userId) || !reason || !String(reason).trim()) return res.status(400).json({ error: 'بيانات ناقصة' });
-  db.warnings.push({ id: uid(), sectorId: sid, userId: String(userId), reason: String(reason).trim().slice(0, 300), by: req.user.id, at: Date.now() });
+  const clean = String(reason).trim().slice(0, 300);
+  db.warnings.push({ id: uid(), sectorId: sid, userId: String(userId), reason: clean, by: req.user.id, at: Date.now() });
   save();
+  notify('warnings', {
+    title: 'تحذير جديد', color: COLORS.amber, description: `<@${userId}>`,
+    fields: [
+      { name: 'القطاع', value: sec.name, inline: true },
+      { name: 'بواسطة', value: req.user.name, inline: true },
+      { name: 'السبب', value: clean },
+    ],
+  });
   res.json({ ok: true });
 });
 
 app.delete('/api/sectors/:id/warnings/:wid', auth, (req, res) => {
   if (!canEdit(req.user.id, req.params.id)) return res.status(403).json({ error: 'ما عندك صلاحية تعديل' });
-  db.warnings = db.warnings.filter((w) => !(w.id === req.params.wid && w.sectorId === req.params.id));
-  save();
+  const w = db.warnings.find((x) => x.id === req.params.wid && x.sectorId === req.params.id);
+  if (w) {
+    db.warnings = db.warnings.filter((x) => x !== w);
+    save();
+    notify('warnings', {
+      title: 'حذف تحذير', color: COLORS.blue, description: `<@${w.userId}>`,
+      fields: [{ name: 'بواسطة', value: req.user.name, inline: true }, { name: 'كان السبب', value: w.reason }],
+    });
+  }
   res.json({ ok: true });
 });
 
 app.post('/api/sectors/:id/members/:uid/endduty', auth, (req, res) => {
   if (!canEdit(req.user.id, req.params.id)) return res.status(403).json({ error: 'ما عندك صلاحية تعديل' });
   const open = db.shifts.find((s) => s.sectorId === req.params.id && s.userId === req.params.uid && !s.end);
-  if (open) { open.end = Date.now(); save(); }
+  if (open) {
+    open.end = Date.now();
+    save();
+    const mins = Math.round((open.end - open.start) / 60000);
+    const sec = db.sectors.find((s) => s.id === open.sectorId);
+    notify('duty', {
+      title: 'إنهاء مباشرة (من الموقع)', color: COLORS.red, description: `<@${open.userId}>`,
+      fields: [
+        { name: 'القطاع', value: sec ? sec.name : '-', inline: true },
+        { name: 'المدة', value: `${Math.floor(mins / 60)}س ${mins % 60}د`, inline: true },
+        { name: 'بواسطة', value: req.user.name, inline: true },
+      ],
+    });
+  }
   res.json({ ok: true });
 });
 
@@ -387,6 +501,83 @@ app.delete('/api/admin/users/:id', auth, ownerOnly, (req, res) => {
   res.json({ ok: true });
 });
 
+/* المظهر والإعدادات */
+app.get('/api/admin/settings', auth, ownerOnly, (req, res) => res.json(db.settings));
+
+app.put('/api/admin/settings', auth, ownerOnly, (req, res) => {
+  const b = req.body || {};
+  const s = db.settings;
+  if (b.siteName !== undefined) {
+    const n = String(b.siteName).trim().slice(0, 60);
+    if (!n) return res.status(400).json({ error: 'اكتب اسم الموقع' });
+    s.siteName = n;
+  }
+  if (b.accent !== undefined) {
+    if (!/^#[0-9a-f]{6}$/i.test(String(b.accent))) return res.status(400).json({ error: 'لون غير صالح' });
+    s.accent = String(b.accent).toLowerCase();
+  }
+  if (b.overlay !== undefined) {
+    const o = Number(b.overlay);
+    if (!(o >= 30 && o <= 98)) return res.status(400).json({ error: 'قيمة التعتيم غير صالحة' });
+    s.overlay = Math.round(o);
+  }
+  if (b.webhook) {
+    const url = String(b.webhook.url || '').trim();
+    if (url && !WEBHOOK_RE.test(url)) return res.status(400).json({ error: 'رابط الويب هوك غير صالح. لازم يبدأ بـ https://discord.com/api/webhooks/' });
+    s.webhook = { url, duty: !!b.webhook.duty, warnings: !!b.webhook.warnings };
+  }
+  save();
+  res.json(s);
+});
+
+app.post('/api/admin/webhook/test', auth, ownerOnly, async (req, res) => {
+  const r = await postWebhook({
+    embeds: [{ title: 'اختبار الويب هوك', description: 'إذا وصلتك هذي الرسالة فالربط شغال.', color: COLORS.blue, timestamp: new Date().toISOString() }],
+  });
+  if (!r.ok) return res.status(400).json({ error: 'فشل الإرسال' + (r.status ? ' (رمز ' + r.status + ')' : '') + '. تأكد من الرابط وأنه محفوظ.' });
+  res.json({ ok: true });
+});
+
+/* رفع الشعار والخلفيات */
+const KINDS = ['logo', 'loginBg', 'dashBg'];
+function sniff(buf) {
+  if (buf.length > 12 && buf.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]))) return 'png';
+  if (buf.length > 3 && buf[0] === 0xff && buf[1] === 0xd8 && buf[2] === 0xff) return 'jpg';
+  if (buf.length > 12 && buf.subarray(0, 4).toString() === 'RIFF' && buf.subarray(8, 12).toString() === 'WEBP') return 'webp';
+  if (buf.length > 6 && buf.subarray(0, 3).toString() === 'GIF') return 'gif';
+  return null;
+}
+function rmUpload(url) {
+  if (typeof url === 'string' && /^\/uploads\/[\w.-]+$/.test(url)) fs.unlink(path.join(UP_DIR, path.basename(url)), () => {});
+}
+app.post('/api/admin/upload', auth, ownerOnly, (req, res) => {
+  const { kind, data } = req.body || {};
+  if (!KINDS.includes(kind)) return res.status(400).json({ error: 'نوع غير صالح' });
+  const m = /^data:image\/(png|jpeg|webp|gif);base64,([A-Za-z0-9+/=]+)$/.exec(String(data || ''));
+  if (!m) return res.status(400).json({ error: 'صيغة الصورة غير مدعومة (PNG أو JPG أو WEBP أو GIF)' });
+  const buf = Buffer.from(m[2], 'base64');
+  if (buf.length > (kind === 'logo' ? 2 : 6) * 1024 * 1024) return res.status(400).json({ error: 'حجم الصورة كبير' });
+  const ext = sniff(buf);
+  if (!ext) return res.status(400).json({ error: 'الملف ليس صورة صالحة' });
+  const name = `${kind}-${uid()}.${ext}`;
+  fs.writeFileSync(path.join(UP_DIR, name), buf);
+  rmUpload(db.settings[kind]);
+  db.settings[kind] = '/uploads/' + name;
+  save();
+  res.json({ ok: true, url: db.settings[kind] });
+});
+app.delete('/api/admin/upload/:kind', auth, ownerOnly, (req, res) => {
+  if (!KINDS.includes(req.params.kind)) return res.status(400).json({ error: 'نوع غير صالح' });
+  rmUpload(db.settings[req.params.kind]);
+  db.settings[req.params.kind] = '';
+  save();
+  res.json({ ok: true });
+});
+
+app.use('/uploads', express.static(UP_DIR, {
+  maxAge: '1h',
+  setHeaders: (r) => r.setHeader('X-Content-Type-Options', 'nosniff'),
+}));
 app.use(express.static(path.join(__dirname, 'public')));
 
 /* ---------------------------------- تشغيل ---------------------------------- */

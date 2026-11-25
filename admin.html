@@ -1,0 +1,243 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>لوحة الإدارة</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+
+<nav class="nav"><div class="nav-in">
+  <div class="brand"><img data-brand-logo alt="" hidden><span data-brand-name>لوحة مدراء القطاعات</span><span class="tag of">الإدارة</span></div>
+  <a class="btn sm" href="/">لوحة القطاعات</a>
+  <div class="who"><img id="avatar" alt=""><span id="uname"></span></div>
+  <a class="btn sm" href="/logout">خروج</a>
+</div></nav>
+
+<main class="wrap">
+  <div class="tabs">
+    <button class="tab on" data-p="sectors">القطاعات</button>
+    <button class="tab" data-p="users">المدراء والصلاحيات</button>
+    <button class="tab" data-p="look">الشعار والخلفيات</button>
+    <button class="tab" data-p="notify">الإشعارات (ويب هوك)</button>
+  </div>
+
+  <!-- القطاعات -->
+  <section class="glass box" id="p-sectors">
+    <h2>القطاعات</h2>
+    <div class="hint">كل قطاع مرتبط برتبة دسكورد (رتبة الأعضاء). رتبة الضباط اختيارية وتُستخدم لعدّ الضباط.</div>
+    <div id="sectorsAdmin"></div>
+  </section>
+
+  <!-- المدراء -->
+  <section class="glass box hidden" id="p-users">
+    <h2>المدراء والصلاحيات</h2>
+    <div class="hint">حدّد من يقدر يشوف أي قطاع، ومن يقدر يعدّل (إضافة وحذف تحذيرات، وإنهاء مباشرة أحد). المالك يشوف ويعدّل كل شيء تلقائياً.</div>
+    <div id="usersAdmin"></div>
+  </section>
+
+  <!-- المظهر -->
+  <div class="hidden" id="p-look">
+    <section class="glass box">
+      <h2>الهوية</h2>
+      <div class="row">
+        <div class="grow"><label class="lab" for="siteName">اسم الموقع</label><input type="text" id="siteName" maxlength="60"></div>
+        <div><label class="lab" for="accent">اللون الرئيسي</label><input type="color" id="accent"></div>
+        <div class="grow"><label class="lab" for="overlay">تعتيم الخلفية</label><div class="range-row"><input type="range" id="overlay" min="30" max="98"><output id="overlayOut"></output></div></div>
+        <button class="btn primary" id="saveLook">حفظ</button>
+      </div>
+    </section>
+    <section class="glass box">
+      <h2>الشعار والخلفيات</h2>
+      <div class="hint">الصور تُصغَّر تلقائياً قبل الرفع. الشعار الأفضل PNG بخلفية شفافة. الخلفية تظهر خلف كل الصفحة مع التعتيم اللي حددته فوق.</div>
+      <div class="grid2" id="tiles"></div>
+    </section>
+  </div>
+
+  <!-- الإشعارات -->
+  <div class="hidden" id="p-notify">
+    <section class="glass box">
+      <h2>ويب هوك دسكورد</h2>
+      <div class="hint">يرسل البوت إشعار لقناة دسكورد عند بدء المباشرة وإنهائها، وعند إضافة أو حذف تحذير.</div>
+      <div class="pad">
+        <ol class="steps">
+          <li>في دسكورد: إعدادات القناة ← التكاملات (Integrations) ← ويب هوك ← ويب هوك جديد.</li>
+          <li>اختر القناة، ثم اضغط "نسخ رابط ويب هوك".</li>
+          <li>الصق الرابط تحت واضغط حفظ، ثم "إرسال تجربة".</li>
+        </ol>
+      </div>
+      <div class="row">
+        <div class="grow" style="flex-basis:100%"><label class="lab" for="whUrl">رابط الويب هوك</label><input type="text" id="whUrl" dir="ltr" placeholder="https://discord.com/api/webhooks/..." autocomplete="off"></div>
+        <label class="chk"><input type="checkbox" id="whDuty">إشعارات المباشرة</label>
+        <label class="chk"><input type="checkbox" id="whWarn">إشعارات التحذيرات</label>
+        <button class="btn primary" id="saveWh">حفظ</button>
+        <button class="btn" id="testWh">إرسال تجربة</button>
+      </div>
+    </section>
+  </div>
+</main>
+
+<script src="/common.js"></script>
+<script>
+let me = null, data = null, settings = null;
+window.onUnauthorized = () => { location.href = '/admin'; };
+
+async function init() {
+  me = await api('/api/me');
+  if (!me.owner) { location.href = '/'; return; }
+  $('#uname').textContent = me.user.name;
+  if (me.user.avatar) $('#avatar').src = me.user.avatar;
+  await Promise.all([loadData(), loadSettings()]);
+}
+
+$$('.tab').forEach(b => b.addEventListener('click', () => {
+  $$('.tab').forEach(x => x.classList.toggle('on', x === b));
+  ['sectors', 'users', 'look', 'notify'].forEach(p => $('#p-' + p).classList.toggle('hidden', p !== b.dataset.p));
+}));
+
+/* ---------- القطاعات والمدراء ---------- */
+async function loadData() { data = await api('/api/admin/data'); renderData(); }
+const roleOpts = (sel, none) => `<option value="">${none ? '— بدون —' : 'اختر رتبة…'}</option>` +
+  data.roles.map(r => `<option value="${esc(r.id)}" ${r.id === sel ? 'selected' : ''}>${esc(r.name)}</option>`).join('');
+
+function renderData() {
+  $('#sectorsAdmin').innerHTML = data.sectors.map(s => `
+    <div class="row" data-sid="${esc(s.id)}">
+      <div class="grow"><span class="lab">اسم القطاع</span><input type="text" class="s-name" value="${esc(s.name)}" maxlength="60"></div>
+      <div class="grow"><span class="lab">رتبة الأعضاء</span><select class="s-role">${roleOpts(s.roleId)}</select></div>
+      <div class="grow"><span class="lab">رتبة الضباط</span><select class="s-off">${roleOpts(s.officerRoleId, true)}</select></div>
+      <button class="btn sm primary" data-act="save-sector">حفظ</button>
+      <button class="btn sm danger" data-act="del-sector">حذف</button>
+    </div>`).join('') + `
+    <div class="row">
+      <div class="grow"><span class="lab">قطاع جديد</span><input type="text" class="s-name" placeholder="اسم القطاع" maxlength="60"></div>
+      <div class="grow"><span class="lab">رتبة الأعضاء</span><select class="s-role">${roleOpts('')}</select></div>
+      <div class="grow"><span class="lab">رتبة الضباط</span><select class="s-off">${roleOpts('', true)}</select></div>
+      <button class="btn sm primary" data-act="add-sector">إضافة قطاع</button>
+    </div>`;
+
+  const checks = sel => data.sectors.length
+    ? data.sectors.map(s => `<label class="chk"><input type="checkbox" class="u-sec" value="${esc(s.id)}" ${sel.includes(s.id) ? 'checked' : ''}>${esc(s.name)}</label>`).join('')
+    : '<span class="lab">أضف قطاعات أولاً</span>';
+  $('#usersAdmin').innerHTML = data.users.map(u => `
+    <div class="row" data-uid="${esc(u.id)}">
+      <div class="grow"><b>${esc(u.name)}</b><span class="lab" dir="ltr" style="text-align:right;margin:0">${esc(u.id)}</span></div>
+      <div class="grow" style="display:flex;gap:6px;flex-wrap:wrap">${checks(u.sectors)}</div>
+      <label class="chk"><input type="checkbox" class="u-edit" ${u.canEdit ? 'checked' : ''}>يقدر يعدّل</label>
+      <button class="btn sm primary" data-act="save-user">حفظ</button>
+      <button class="btn sm danger" data-act="del-user">إزالة</button>
+    </div>`).join('') + `
+    <div class="row">
+      <div class="grow"><span class="lab">إضافة مدير جديد</span><input type="text" class="u-id" placeholder="ايدي دسكورد" inputmode="numeric"></div>
+      <div class="grow" style="display:flex;gap:6px;flex-wrap:wrap">${checks([])}</div>
+      <label class="chk"><input type="checkbox" class="u-edit">يقدر يعدّل</label>
+      <button class="btn sm primary" data-act="add-user">إضافة</button>
+    </div>`;
+}
+
+document.addEventListener('click', e => {
+  const b = e.target.closest('button[data-act]'); if (!b) return;
+  const row = b.closest('.row');
+  const sec = () => ({name: row.querySelector('.s-name').value, roleId: row.querySelector('.s-role').value, officerRoleId: row.querySelector('.s-off').value});
+  const usr = () => ({sectors: $$('.u-sec:checked', row).map(x => x.value), canEdit: row.querySelector('.u-edit').checked});
+  const done = async m => { toast(m); await loadData(); };
+  const a = b.dataset.act;
+  if (a === 'add-sector') act(async () => { await api('/api/admin/sectors', {method: 'POST', body: sec()}); await done('تمت إضافة القطاع'); });
+  if (a === 'save-sector') act(async () => { await api('/api/admin/sectors/' + row.dataset.sid, {method: 'PUT', body: sec()}); await done('تم الحفظ'); });
+  if (a === 'del-sector' && confirm('حذف القطاع مع كل ساعاته وتحذيراته؟')) act(async () => { await api('/api/admin/sectors/' + row.dataset.sid, {method: 'DELETE'}); await done('تم حذف القطاع'); });
+  if (a === 'add-user') act(async () => { await api('/api/admin/users/' + row.querySelector('.u-id').value.trim(), {method: 'PUT', body: usr()}); await done('تمت إضافة المدير'); });
+  if (a === 'save-user') act(async () => { await api('/api/admin/users/' + row.dataset.uid, {method: 'PUT', body: usr()}); await done('تم حفظ الصلاحيات'); });
+  if (a === 'del-user' && confirm('إزالة هذا المدير؟')) act(async () => { await api('/api/admin/users/' + row.dataset.uid, {method: 'DELETE'}); await done('تمت الإزالة'); });
+});
+
+/* ---------- المظهر ---------- */
+const TILES = [
+  {kind: 'logo', title: 'الشعار', note: 'يظهر في الشريط العلوي وصفحة الدخول', max: 512, mime: 'image/png'},
+  {kind: 'loginBg', title: 'خلفية صفحة الدخول', note: 'صورة عريضة، الأفضل 1920 بكسل', max: 1920, mime: 'image/jpeg'},
+  {kind: 'dashBg', title: 'خلفية اللوحات', note: 'خلف لوحة القطاع ولوحة الإدارة', max: 1920, mime: 'image/jpeg'},
+];
+
+async function loadSettings() {
+  settings = await api('/api/admin/settings');
+  $('#siteName').value = settings.siteName;
+  $('#accent').value = settings.accent;
+  $('#overlay').value = settings.overlay; $('#overlayOut').textContent = settings.overlay + '%';
+  $('#whUrl').value = settings.webhook.url;
+  $('#whDuty').checked = settings.webhook.duty;
+  $('#whWarn').checked = settings.webhook.warnings;
+  applyBranding(settings, 'dash');
+  renderTiles();
+}
+
+function renderTiles() {
+  $('#tiles').innerHTML = TILES.map(t => {
+    const u = safeImg(settings[t.kind]);
+    return `<div class="tile" data-kind="${t.kind}">
+      <h3>${t.title}</h3><p>${t.note}</p>
+      <div class="prev">${u ? `<img src="${esc(u)}" alt="">` : 'ما فيه صورة'}</div>
+      <div class="btns">
+        <button class="btn sm primary" data-pick="${t.kind}">${u ? 'استبدال' : 'رفع صورة'}</button>
+        ${u ? `<button class="btn sm danger" data-rm="${t.kind}">إزالة</button>` : ''}
+        <input type="file" accept="image/png,image/jpeg,image/webp,image/gif" hidden data-file="${t.kind}">
+      </div></div>`;
+  }).join('');
+}
+
+function toDataUrl(file, maxDim, mime) {
+  return new Promise((res, rej) => {
+    const fr = new FileReader();
+    fr.onerror = () => rej(new Error('فشل قراءة الملف'));
+    fr.onload = () => {
+      const img = new Image();
+      img.onerror = () => rej(new Error('ما قدرت أقرأ الصورة'));
+      img.onload = () => {
+        const k = Math.min(1, maxDim / Math.max(img.width, img.height));
+        const c = document.createElement('canvas');
+        c.width = Math.round(img.width * k); c.height = Math.round(img.height * k);
+        c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+        res(c.toDataURL(mime, 0.86));
+      };
+      img.src = fr.result;
+    };
+    fr.readAsDataURL(file);
+  });
+}
+
+$('#tiles').addEventListener('click', e => {
+  const pick = e.target.closest('[data-pick]'), rm = e.target.closest('[data-rm]');
+  if (pick) $('[data-file="' + pick.dataset.pick + '"]').click();
+  if (rm && confirm('إزالة الصورة؟')) act(async () => { await api('/api/admin/upload/' + rm.dataset.rm, {method: 'DELETE'}); await loadSettings(); toast('تمت الإزالة'); });
+});
+$('#tiles').addEventListener('change', e => {
+  const inp = e.target.closest('[data-file]'); if (!inp || !inp.files[0]) return;
+  const t = TILES.find(x => x.kind === inp.dataset.file), f = inp.files[0];
+  act(async () => {
+    toast('جاري الرفع…');
+    const dataUrl = await toDataUrl(f, t.max, t.mime);
+    await api('/api/admin/upload', {method: 'POST', body: {kind: t.kind, data: dataUrl}});
+    await loadSettings(); toast('تم الرفع');
+  }).finally(() => { inp.value = ''; });
+});
+
+$('#overlay').addEventListener('input', e => { $('#overlayOut').textContent = e.target.value + '%'; applyBranding({...settings, overlay: e.target.value, accent: $('#accent').value}, 'dash'); });
+$('#accent').addEventListener('input', e => applyBranding({...settings, accent: e.target.value, overlay: $('#overlay').value}, 'dash'));
+$('#saveLook').addEventListener('click', () => act(async () => {
+  settings = await api('/api/admin/settings', {method: 'PUT', body: {siteName: $('#siteName').value, accent: $('#accent').value, overlay: Number($('#overlay').value)}});
+  applyBranding(settings, 'dash'); toast('تم حفظ المظهر');
+}));
+
+/* ---------- الويب هوك ---------- */
+const whBody = () => ({webhook: {url: $('#whUrl').value, duty: $('#whDuty').checked, warnings: $('#whWarn').checked}});
+$('#saveWh').addEventListener('click', () => act(async () => { settings = await api('/api/admin/settings', {method: 'PUT', body: whBody()}); toast('تم حفظ إعدادات الإشعارات'); }));
+$('#testWh').addEventListener('click', () => act(async () => {
+  settings = await api('/api/admin/settings', {method: 'PUT', body: whBody()});
+  await api('/api/admin/webhook/test', {method: 'POST'}); toast('انرسلت رسالة التجربة، شيّك على القناة');
+}));
+
+act(init);
+</script>
+</body>
+</html>
