@@ -38,12 +38,13 @@ const DEFAULT_SETTINGS = {
   logo: '',
   loginBg: '',
   dashBg: '',
-  webhook: { url: '', duty: true, warnings: true },
+  notify: { channelId: '', duty: true, warnings: true },
 };
 let db = { sectors: [], users: {}, shifts: [], warnings: [], settings: {} };
 try { db = Object.assign(db, JSON.parse(fs.readFileSync(DB_FILE, 'utf8'))); } catch { /* أول تشغيل */ }
 db.settings = Object.assign({}, DEFAULT_SETTINGS, db.settings || {});
-db.settings.webhook = Object.assign({}, DEFAULT_SETTINGS.webhook, db.settings.webhook || {});
+const oldWh = db.settings.webhook; delete db.settings.webhook;
+db.settings.notify = Object.assign({}, DEFAULT_SETTINGS.notify, oldWh ? { duty: oldWh.duty, warnings: oldWh.warnings } : {}, db.settings.notify || {});
 
 let saveTimer = null;
 function save() {
@@ -85,27 +86,31 @@ const nameOf = (g, id) => {
   return u ? u.globalName || u.username : id;
 };
 
-/* ------------------------------- ويب هوك ------------------------------- */
-const WEBHOOK_RE = /^https:\/\/((ptb|canary)\.)?(discord|discordapp)\.com\/api\/webhooks\/\d+\/[\w-]+\/?$/;
+/* ------------------------------- إشعارات الروم ------------------------------- */
 const COLORS = { green: 0x3ecf8e, red: 0xf0556a, amber: 0xf5a524, blue: 0x5865f2 };
 
-async function postWebhook(payload) {
-  const w = db.settings.webhook;
-  if (!w || !w.url) return { ok: false, error: 'ما فيه رابط ويب هوك' };
-  const body = Object.assign({ username: db.settings.siteName.slice(0, 80), allowed_mentions: { parse: [] } }, payload);
-  if (db.settings.logo && CFG.baseUrl.startsWith('https')) body.avatar_url = CFG.baseUrl + db.settings.logo;
+async function resolveChannel(id) {
   try {
-    const r = await fetch(w.url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
-    return { ok: r.ok, status: r.status };
-  } catch (e) {
-    return { ok: false, error: e.message };
-  }
+    const ch = await client.channels.fetch(id);
+    if (!ch || ch.guildId !== CFG.guildId || !ch.isTextBased()) return { ok: false, error: 'هذا مو روم كتابي في السيرفر المربوط بالبوت' };
+    const p = ch.permissionsFor(client.user);
+    if (!p || !p.has(['ViewChannel', 'SendMessages', 'EmbedLinks'])) return { ok: false, error: 'البوت يحتاج صلاحيات: عرض الروم، إرسال الرسائل، تضمين الروابط' };
+    return { ok: true, channel: ch, name: ch.name };
+  } catch { return { ok: false, error: 'ما لقيت الروم. تأكد من الايدي وأن البوت يشوفه' }; }
+}
+async function sendNotice(payload) {
+  const id = db.settings.notify.channelId;
+  if (!id) return { ok: false, error: 'ما فيه ايدي روم محفوظ' };
+  const r = await resolveChannel(id);
+  if (!r.ok) return r;
+  try { await r.channel.send(Object.assign({ allowedMentions: { parse: [] } }, payload)); return { ok: true }; }
+  catch (e) { return { ok: false, error: e.message }; }
 }
 function notify(type, e) {
-  const w = db.settings.webhook;
-  if (!w || !w.url || !w[type]) return;
-  postWebhook({ embeds: [{ title: e.title, description: e.description, color: e.color, fields: e.fields, timestamp: new Date().toISOString() }] })
-    .then((r) => { if (!r.ok) console.error('فشل الويب هوك', r.status || r.error); });
+  const n = db.settings.notify;
+  if (!n.channelId || !n[type]) return;
+  sendNotice({ embeds: [{ title: e.title, description: e.description, color: e.color, fields: e.fields, footer: { text: db.settings.siteName }, timestamp: new Date().toISOString() }] })
+    .then((r) => { if (!r.ok) console.error('فشل إرسال الإشعار', r.error); });
 }
 const tnow = () => `<t:${Math.floor(Date.now() / 1000)}:t>`;
 
@@ -502,9 +507,10 @@ app.delete('/api/admin/users/:id', auth, ownerOnly, (req, res) => {
 });
 
 /* المظهر والإعدادات */
-app.get('/api/admin/settings', auth, ownerOnly, (req, res) => res.json(db.settings));
+const withCh = async (s) => { const c = s.notify.channelId ? await resolveChannel(s.notify.channelId) : null; return { ...s, channel: c && (c.ok ? { name: c.name } : { error: c.error }) }; };
+app.get('/api/admin/settings', auth, ownerOnly, async (req, res) => res.json(await withCh(db.settings)));
 
-app.put('/api/admin/settings', auth, ownerOnly, (req, res) => {
+app.put('/api/admin/settings', auth, ownerOnly, async (req, res) => {
   const b = req.body || {};
   const s = db.settings;
   if (b.siteName !== undefined) {
@@ -521,20 +527,22 @@ app.put('/api/admin/settings', auth, ownerOnly, (req, res) => {
     if (!(o >= 30 && o <= 98)) return res.status(400).json({ error: 'قيمة التعتيم غير صالحة' });
     s.overlay = Math.round(o);
   }
-  if (b.webhook) {
-    const url = String(b.webhook.url || '').trim();
-    if (url && !WEBHOOK_RE.test(url)) return res.status(400).json({ error: 'رابط الويب هوك غير صالح. لازم يبدأ بـ https://discord.com/api/webhooks/' });
-    s.webhook = { url, duty: !!b.webhook.duty, warnings: !!b.webhook.warnings };
+  if (b.notify) {
+    const channelId = String(b.notify.channelId || '').trim();
+    if (channelId) {
+      if (!isId(channelId)) return res.status(400).json({ error: 'ايدي الروم غير صالح، لازم أرقام فقط' });
+      const r = await resolveChannel(channelId);
+      if (!r.ok) return res.status(400).json({ error: r.error });
+    }
+    s.notify = { channelId, duty: !!b.notify.duty, warnings: !!b.notify.warnings };
   }
   save();
-  res.json(s);
+  res.json(await withCh(s));
 });
 
-app.post('/api/admin/webhook/test', auth, ownerOnly, async (req, res) => {
-  const r = await postWebhook({
-    embeds: [{ title: 'اختبار الويب هوك', description: 'إذا وصلتك هذي الرسالة فالربط شغال.', color: COLORS.blue, timestamp: new Date().toISOString() }],
-  });
-  if (!r.ok) return res.status(400).json({ error: 'فشل الإرسال' + (r.status ? ' (رمز ' + r.status + ')' : '') + '. تأكد من الرابط وأنه محفوظ.' });
+app.post('/api/admin/notify/test', auth, ownerOnly, async (req, res) => {
+  const r = await sendNotice({ embeds: [{ title: 'اختبار الإشعارات', description: 'إذا وصلتك هذي الرسالة فالربط شغال.', color: COLORS.blue, timestamp: new Date().toISOString() }] });
+  if (!r.ok) return res.status(400).json({ error: r.error });
   res.json({ ok: true });
 });
 

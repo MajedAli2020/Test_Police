@@ -22,7 +22,7 @@
     <button class="tab on" data-p="sectors">القطاعات</button>
     <button class="tab" data-p="users">المدراء والصلاحيات</button>
     <button class="tab" data-p="look">الشعار والخلفيات</button>
-    <button class="tab" data-p="notify">الإشعارات (ويب هوك)</button>
+    <button class="tab" data-p="notify">الإشعارات</button>
   </div>
 
   <!-- القطاعات -->
@@ -60,22 +60,19 @@
   <!-- الإشعارات -->
   <div class="hidden" id="p-notify">
     <section class="glass box">
-      <h2>ويب هوك دسكورد</h2>
-      <div class="hint">يرسل البوت إشعار لقناة دسكورد عند بدء المباشرة وإنهائها، وعند إضافة أو حذف تحذير.</div>
-      <div class="pad">
-        <ol class="steps">
-          <li>في دسكورد: إعدادات القناة ← التكاملات (Integrations) ← ويب هوك ← ويب هوك جديد.</li>
-          <li>اختر القناة، ثم اضغط "نسخ رابط ويب هوك".</li>
-          <li>الصق الرابط تحت واضغط حفظ، ثم "إرسال تجربة".</li>
-        </ol>
-      </div>
+      <h2>إشعارات الروم <span id="chState" class="tag"></span></h2>
+      <div class="hint">يرسل البوت إشعار إلى روم دسكورد عند بدء المباشرة وإنهائها، وعند إضافة أو حذف تحذير.</div>
       <div class="row">
-        <div class="grow" style="flex-basis:100%"><label class="lab" for="whUrl">رابط الويب هوك</label><input type="text" id="whUrl" dir="ltr" placeholder="https://discord.com/api/webhooks/..." autocomplete="off"></div>
-        <label class="chk"><input type="checkbox" id="whDuty">إشعارات المباشرة</label>
-        <label class="chk"><input type="checkbox" id="whWarn">إشعارات التحذيرات</label>
+        <div class="grow"><label class="lab" for="chId">ايدي الروم</label><input type="text" id="chId" dir="ltr" inputmode="numeric" placeholder="123456789012345678" autocomplete="off"></div>
         <button class="btn primary" id="saveWh">حفظ</button>
         <button class="btn" id="testWh">إرسال تجربة</button>
       </div>
+      <div class="row"><label class="sw"><input type="checkbox" id="whDuty"><i></i>إشعارات المباشرة</label><label class="sw"><input type="checkbox" id="whWarn"><i></i>إشعارات التحذيرات</label></div>
+      <div class="pad"><ol class="steps">
+        <li>فعّل وضع المطور: إعدادات دسكورد ← متقدم ← وضع المطور.</li>
+        <li>كليك يمين على الروم ← نسخ معرّف القناة، والصقه فوق.</li>
+        <li>تأكد أن البوت يقدر يشوف الروم ويرسل فيه ويضمّن الروابط.</li>
+      </ol></div>
     </section>
   </div>
 </main>
@@ -165,9 +162,12 @@ async function loadSettings() {
   $('#siteName').value = settings.siteName;
   $('#accent').value = settings.accent;
   $('#overlay').value = settings.overlay; $('#overlayOut').textContent = settings.overlay + '%';
-  $('#whUrl').value = settings.webhook.url;
-  $('#whDuty').checked = settings.webhook.duty;
-  $('#whWarn').checked = settings.webhook.warnings;
+  $('#chId').value = settings.notify.channelId;
+  $('#whDuty').checked = settings.notify.duty;
+  $('#whWarn').checked = settings.notify.warnings;
+  const c = settings.channel, st = $('#chState');
+  st.textContent = c ? (c.name ? 'متصل بـ #' + c.name : 'غير صالح') : 'غير مفعّل';
+  st.className = 'tag' + (c && c.name ? ' on' : '');
   applyBranding(settings, 'dash');
   renderTiles();
 }
@@ -230,11 +230,11 @@ $('#saveLook').addEventListener('click', () => act(async () => {
 }));
 
 /* ---------- الويب هوك ---------- */
-const whBody = () => ({webhook: {url: $('#whUrl').value, duty: $('#whDuty').checked, warnings: $('#whWarn').checked}});
-$('#saveWh').addEventListener('click', () => act(async () => { settings = await api('/api/admin/settings', {method: 'PUT', body: whBody()}); toast('تم حفظ إعدادات الإشعارات'); }));
+const whBody = () => ({notify: {channelId: $('#chId').value, duty: $('#whDuty').checked, warnings: $('#whWarn').checked}});
+$('#saveWh').addEventListener('click', () => act(async () => { settings = await api('/api/admin/settings', {method: 'PUT', body: whBody()}); await loadSettings(); toast('تم حفظ إعدادات الإشعارات'); }));
 $('#testWh').addEventListener('click', () => act(async () => {
   settings = await api('/api/admin/settings', {method: 'PUT', body: whBody()});
-  await api('/api/admin/webhook/test', {method: 'POST'}); toast('انرسلت رسالة التجربة، شيّك على القناة');
+  await api('/api/admin/notify/test', {method: 'POST'}); toast('انرسلت رسالة التجربة، شيّك على القناة');
 }));
 
 act(init);
