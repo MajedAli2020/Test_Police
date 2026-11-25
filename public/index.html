@@ -1,0 +1,192 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>لوحة مدراء القطاعات</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+
+<div id="login" class="screen hidden">
+  <div class="glass login-card">
+    <img data-brand-logo class="login-logo" alt="" hidden>
+    <h1 data-brand-name>لوحة مدراء القطاعات</h1>
+    <p id="loginMsg">سجّل دخولك بحساب دسكورد للوصول إلى إحصائيات قطاعك.</p>
+    <a id="loginBtn" class="btn primary lg" href="/login">تسجيل الدخول عبر Discord</a>
+  </div>
+</div>
+
+<div id="app" class="hidden">
+  <nav class="nav"><div class="nav-in">
+    <div class="brand"><img data-brand-logo alt="" hidden><span data-brand-name>لوحة مدراء القطاعات</span></div>
+    <a id="adminLink" class="btn sm hidden" href="/admin">لوحة الإدارة</a>
+    <div class="who"><img id="avatar" alt=""><span id="uname"></span></div>
+    <a class="btn sm" href="/logout">خروج</a>
+  </div></nav>
+
+  <main class="wrap">
+    <div id="noAccess" class="glass empty hidden">ما عندك صلاحية على أي قطاع حالياً. تواصل مع المالك ليضيفك.</div>
+
+    <div id="sectorBody" class="hidden">
+      <div class="head-row">
+        <div>
+          <h2 id="secTitle"></h2>
+          <div class="sub"><span class="live-dot"></span><span id="updTxt">مباشر</span></div>
+        </div>
+        <div id="pills" class="pills"></div>
+      </div>
+
+      <div class="stats" id="cards"></div>
+
+      <section class="glass box"><h2>على المباشرة الآن <span id="liveCount" class="tag on"></span></h2><div id="liveBox"></div></section>
+
+      <section class="glass box">
+        <h2>أفراد القطاع
+          <span class="tools"><input type="search" id="q" placeholder="ابحث بالاسم" style="width:200px"><span id="memCount" class="tag"></span></span>
+        </h2>
+        <div class="scroll" id="membersBox"></div>
+      </section>
+
+      <section class="glass box"><h2>التحذيرات</h2><div id="warnForm"></div><div id="warnBox"></div></section>
+    </div>
+  </main>
+</div>
+
+<script src="/common.js"></script>
+<script>
+let me = null, cur = null, timer = null, last = null, formKey = '', memSig = '';
+window.onUnauthorized = showLogin;
+
+function showLogin() {
+  $('#login').classList.remove('hidden'); $('#app').classList.add('hidden'); clearInterval(timer);
+}
+
+async function init() {
+  loadBranding('login');
+  try { me = await api('/api/me'); } catch (e) {
+    if (e.message !== '401') {
+      $('#login').classList.remove('hidden');
+      $('#loginMsg').textContent = 'ما قدرت أتصل بالسيرفر. شغّل المشروع (npm run dev) ثم افتح http://localhost:3000 بدل فتح الملف مباشرة.';
+      $('#loginBtn').hidden = true;
+    }
+    return;
+  }
+  loadBranding('dash');
+  $('#login').classList.add('hidden'); $('#app').classList.remove('hidden');
+  $('#uname').textContent = me.user.name;
+  if (me.user.avatar) $('#avatar').src = me.user.avatar;
+  $('#adminLink').classList.toggle('hidden', !me.owner);
+  buildPills();
+  if (me.sectors.length) await loadStats();
+  clearInterval(timer);
+  timer = setInterval(() => { if (cur) loadStats(true); }, 15000);
+}
+
+function buildPills() {
+  const has = me.sectors.length > 0;
+  $('#noAccess').classList.toggle('hidden', has);
+  $('#sectorBody').classList.toggle('hidden', !has);
+  if (!has) return;
+  if (!cur || !me.sectors.some(s => s.id === cur)) cur = me.sectors[0].id;
+  $('#pills').innerHTML = me.sectors.length > 1
+    ? me.sectors.map(s => `<button class="pill-btn ${s.id === cur ? 'on' : ''}" data-sec="${esc(s.id)}">${esc(s.name)}</button>`).join('')
+    : '';
+}
+$('#pills').addEventListener('click', e => {
+  const b = e.target.closest('[data-sec]'); if (!b) return;
+  cur = b.dataset.sec; formKey = ''; memSig = ''; buildPills(); act(() => loadStats());
+});
+$('#q').addEventListener('input', () => { if (last) renderMembers(last); });
+
+async function loadStats(silent) {
+  try {
+    last = await api('/api/sectors/' + cur + '/stats');
+    render(last);
+    $('#updTxt').textContent = 'مباشر · آخر تحديث ' + new Date().toLocaleTimeString('ar-SA', {hour: '2-digit', minute: '2-digit', second: '2-digit'});
+  } catch (e) { if (!silent && e.message !== '401') toast(e.message, true); }
+}
+
+function render(st) {
+  const t = st.totals;
+  $('#secTitle').textContent = st.sector.name;
+  $('#cards').innerHTML = [
+    ['على المباشرة الآن', t.onDuty, 'من ' + t.members + ' فرد', 'var(--ok)', true],
+    ['ساعات آخر 7 أيام', dur(t.weekSec), 'مجموع القطاع', 'var(--accent)'],
+    ['إجمالي الساعات', dur(t.totalSec), 'كل الأوقات', 'var(--accent)'],
+    ['أفراد القطاع', t.members, '', 'var(--accent)'],
+    ['الضباط', t.officers, '', 'var(--accent)'],
+    ['التحذيرات', t.warnings, 'على القطاع', t.warnings ? 'var(--warn)' : 'var(--line)'],
+  ].map(([l, v, s, c, h]) => `<div class="stat ${h ? 'hero' : ''}" style="--c:${c}"><div class="l">${l}</div><div class="v">${esc(v)}</div><div class="s">${esc(s) || '&nbsp;'}</div></div>`).join('');
+
+  const live = st.members.filter(m => m.onDuty);
+  $('#liveCount').textContent = live.length;
+  $('#liveBox').innerHTML = live.length
+    ? '<div class="live-grid">' + live.map(m => `
+        <div class="live-card"><img src="${esc(m.avatar)}" alt="">
+          <div class="grow"><div class="n">${esc(m.name)}${m.isOfficer ? ' <span class="tag of">ضابط</span>' : ''}</div><div class="e">منذ ${since(m.since)}</div></div>
+          ${st.canEdit ? `<button class="btn sm danger" data-end="${esc(m.id)}">إنهاء</button>` : ''}
+        </div>`).join('') + '</div>'
+    : '<div class="empty">ما فيه أحد على المباشرة الآن.</div>';
+
+  renderMembers(st);
+  renderWarnForm(st);
+
+  $('#warnBox').innerHTML = st.warnings.length
+    ? st.warnings.map(w => `<div class="warn-item"><div><b>${esc(w.name)}</b><div class="r">${esc(w.reason)}</div><div class="m">بواسطة ${esc(w.by)} · ${fdate(w.at)}</div></div>${st.canEdit ? `<button class="btn sm danger" data-delw="${esc(w.id)}">حذف</button>` : ''}</div>`).join('')
+    : '<div class="empty">ما فيه تحذيرات على القطاع.</div>';
+}
+
+function renderMembers(st) {
+  const q = $('#q').value.trim().toLowerCase();
+  const list = st.members.filter(m => !q || m.name.toLowerCase().includes(q));
+  const max = Math.max(1, ...st.members.map(m => m.weekSec));
+  $('#memCount').textContent = st.members.length;
+  $('#membersBox').innerHTML = list.length
+    ? '<table><thead><tr><th>العضو</th><th>الحالة</th><th>ساعات الأسبوع</th><th>إجمالي الساعات</th><th>التحذيرات</th></tr></thead><tbody>' +
+      list.map(m => `<tr>
+        <td><div class="person"><img src="${esc(m.avatar)}" alt=""><span>${esc(m.name)}</span>${m.isOfficer ? '<span class="tag of">ضابط</span>' : ''}</div></td>
+        <td>${m.onDuty ? '<span class="tag on">مباشر</span>' : '<span class="tag">غير مباشر</span>'}</td>
+        <td><div class="hbar"><div class="t"><div class="f" style="width:${Math.round(m.weekSec / max * 100)}%"></div></div><span>${dur(m.weekSec)}</span></div></td>
+        <td>${dur(m.totalSec)}</td>
+        <td>${m.warns ? `<span class="tag off w">${m.warns}</span>` : '0'}</td></tr>`).join('') + '</tbody></table>'
+    : `<div class="empty">${st.members.length ? 'ما فيه نتائج.' : 'ما فيه أعضاء. تأكد أن رتبة القطاع صحيحة وأن البوت يشوف الأعضاء.'}</div>`;
+}
+
+// نبني نموذج التحذير مرة وحدة عشان ما يضيع اللي كتبته مع التحديث التلقائي
+function renderWarnForm(st) {
+  const key = cur + '|' + st.canEdit;
+  const sig = st.members.map(m => m.id).join(',');
+  if (!st.canEdit) { $('#warnForm').innerHTML = ''; formKey = key; return; }
+  if (key !== formKey) {
+    $('#warnForm').innerHTML = `<div class="form-row"><select id="wUser"></select><input type="text" id="wReason" placeholder="سبب التحذير" maxlength="300"><button class="btn primary" id="wAdd">إضافة تحذير</button></div>`;
+    formKey = key; memSig = '';
+  }
+  if (sig !== memSig) {
+    const sel = $('#wUser'), keep = sel.value;
+    sel.innerHTML = st.members.length ? st.members.map(m => `<option value="${esc(m.id)}">${esc(m.name)}</option>`).join('') : '<option value="">ما فيه أعضاء</option>';
+    if (keep) sel.value = keep;
+    memSig = sig;
+  }
+}
+
+$('#sectorBody').addEventListener('click', e => {
+  const b = e.target.closest('button'); if (!b) return;
+  if (b.id === 'wAdd') act(async () => {
+    await api('/api/sectors/' + cur + '/warnings', {method: 'POST', body: {userId: $('#wUser').value, reason: $('#wReason').value}});
+    $('#wReason').value = ''; toast('تمت إضافة التحذير'); await loadStats();
+  });
+  if (b.dataset.delw && confirm('حذف هذا التحذير؟')) act(async () => {
+    await api('/api/sectors/' + cur + '/warnings/' + b.dataset.delw, {method: 'DELETE'}); await loadStats();
+  });
+  if (b.dataset.end && confirm('إنهاء مباشرة هذا العضو؟')) act(async () => {
+    await api('/api/sectors/' + cur + '/members/' + b.dataset.end + '/endduty', {method: 'POST'}); await loadStats();
+  });
+});
+
+init();
+</script>
+</body>
+</html>
