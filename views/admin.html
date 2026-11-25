@@ -21,6 +21,7 @@
   <div class="tabs">
     <button class="tab on" data-p="sectors">القطاعات</button>
     <button class="tab" data-p="users">المدراء والصلاحيات</button>
+    <button class="tab" data-p="warn">التحذيرات والأفراد</button>
     <button class="tab" data-p="look">الشعار والخلفيات</button>
     <button class="tab" data-p="notify">الإشعارات</button>
   </div>
@@ -28,7 +29,7 @@
   <!-- القطاعات -->
   <section class="glass box" id="p-sectors">
     <h2>القطاعات</h2>
-    <div class="hint">كل قطاع مرتبط برتبة دسكورد (رتبة الأعضاء). رتبة الضباط اختيارية وتُستخدم لعدّ الضباط.</div>
+    <div class="hint">كل قطاع مرتبط برتبة دسكورد، وأي شخص ياخذ الرتبة يظهر في القطاع تلقائياً. إذا تركت رتبة الأعضاء على «إنشاء تلقائي» ينشئها البوت. رتبة المدراء: كل من يحملها يدخل اللوحة بدون إضافته بالايدي.</div>
     <div id="sectorsAdmin"></div>
   </section>
 
@@ -38,6 +39,8 @@
     <div class="hint">حدّد من يقدر يشوف أي قطاع، ومن يقدر يعدّل (إضافة وحذف تحذيرات، وإنهاء مباشرة أحد). المالك يشوف ويعدّل كل شيء تلقائياً.</div>
     <div id="usersAdmin"></div>
   </section>
+
+  <section class="glass hidden" id="p-warn" style="background:none;border:0"><div id="warnAdmin"></div></section>
 
   <!-- المظهر -->
   <div class="hidden" id="p-look">
@@ -92,12 +95,13 @@ async function init() {
 
 $$('.tab').forEach(b => b.addEventListener('click', () => {
   $$('.tab').forEach(x => x.classList.toggle('on', x === b));
-  ['sectors', 'users', 'look', 'notify'].forEach(p => $('#p-' + p).classList.toggle('hidden', p !== b.dataset.p));
+  ['sectors', 'users', 'warn', 'look', 'notify'].forEach(p => $('#p-' + p).classList.toggle('hidden', p !== b.dataset.p));
+  if (b.dataset.p === 'warn') act(loadWarn);
 }));
 
 /* ---------- القطاعات والمدراء ---------- */
 async function loadData() { data = await api('/api/admin/data'); renderData(); }
-const roleOpts = (sel, none) => `<option value="">${none ? '— بدون —' : 'اختر رتبة…'}</option>` +
+const roleOpts = (sel, none) => `<option value="">${none === 'auto' ? '＋ إنشاء رتبة تلقائياً' : none ? '— بدون —' : 'اختر رتبة…'}</option>` +
   data.roles.map(r => `<option value="${esc(r.id)}" ${r.id === sel ? 'selected' : ''}>${esc(r.name)}</option>`).join('');
 
 function renderData() {
@@ -106,14 +110,16 @@ function renderData() {
       <div class="grow"><span class="lab">اسم القطاع</span><input type="text" class="s-name" value="${esc(s.name)}" maxlength="60"></div>
       <div class="grow"><span class="lab">رتبة الأعضاء</span><select class="s-role">${roleOpts(s.roleId)}</select></div>
       <div class="grow"><span class="lab">رتبة الضباط</span><select class="s-off">${roleOpts(s.officerRoleId, true)}</select></div>
-      <button class="btn sm primary" data-act="save-sector">حفظ</button>
+      <div class="grow"><span class="lab">رتبة المدراء</span><select class="s-mgr">${roleOpts(s.managerRoleId, true)}</select></div><label class="chk"><input type="checkbox" class="s-mgre" ${s.managerCanEdit ? 'checked' : ''}>يعدّلون</label>
+            <button class="btn sm primary" data-act="save-sector">حفظ</button>
       <button class="btn sm danger" data-act="del-sector">حذف</button>
     </div>`).join('') + `
     <div class="row">
       <div class="grow"><span class="lab">قطاع جديد</span><input type="text" class="s-name" placeholder="اسم القطاع" maxlength="60"></div>
-      <div class="grow"><span class="lab">رتبة الأعضاء</span><select class="s-role">${roleOpts('')}</select></div>
+      <div class="grow"><span class="lab">رتبة الأعضاء</span><select class="s-role">${roleOpts('', 'auto')}</select></div>
       <div class="grow"><span class="lab">رتبة الضباط</span><select class="s-off">${roleOpts('', true)}</select></div>
-      <button class="btn sm primary" data-act="add-sector">إضافة قطاع</button>
+      <div class="grow"><span class="lab">رتبة المدراء</span><select class="s-mgr">${roleOpts('', true)}</select></div><label class="chk"><input type="checkbox" class="s-mgre" >يعدّلون</label>
+            <button class="btn sm primary" data-act="add-sector">إضافة قطاع</button>
     </div>`;
 
   const checks = sel => data.sectors.length
@@ -138,7 +144,7 @@ function renderData() {
 document.addEventListener('click', e => {
   const b = e.target.closest('button[data-act]'); if (!b) return;
   const row = b.closest('.row');
-  const sec = () => ({name: row.querySelector('.s-name').value, roleId: row.querySelector('.s-role').value, officerRoleId: row.querySelector('.s-off').value});
+  const sec = () => ({name: row.querySelector('.s-name').value, roleId: row.querySelector('.s-role').value, officerRoleId: row.querySelector('.s-off').value, managerRoleId: row.querySelector('.s-mgr').value, managerCanEdit: row.querySelector('.s-mgre').checked});
   const usr = () => ({sectors: $$('.u-sec:checked', row).map(x => x.value), canEdit: row.querySelector('.u-edit').checked});
   const done = async m => { toast(m); await loadData(); };
   const a = b.dataset.act;
@@ -148,6 +154,27 @@ document.addEventListener('click', e => {
   if (a === 'add-user') act(async () => { await api('/api/admin/users/' + row.querySelector('.u-id').value.trim(), {method: 'PUT', body: usr()}); await done('تمت إضافة المدير'); });
   if (a === 'save-user') act(async () => { await api('/api/admin/users/' + row.dataset.uid, {method: 'PUT', body: usr()}); await done('تم حفظ الصلاحيات'); });
   if (a === 'del-user' && confirm('إزالة هذا المدير؟')) act(async () => { await api('/api/admin/users/' + row.dataset.uid, {method: 'DELETE'}); await done('تمت الإزالة'); });
+});
+
+/* ---------- التحذيرات والأفراد ---------- */
+async function loadWarn() {
+  const all = await api('/api/admin/overview');
+  $('#warnAdmin').innerHTML = all.length ? all.map(st => {
+    const by = {}; st.warnings.forEach(w => (by[w.userId] = by[w.userId] || []).push(w));
+    const rows = st.members.map(m => `<tr><td><div class="person"><img src="${esc(m.avatar)}" alt=""><span>${esc(m.name)}</span>${m.isOfficer ? '<span class="tag of">ضابط</span>' : ''}</div></td>
+      <td>${m.onDuty ? '<span class="tag on">مباشر</span>' : '<span class="tag">غير مباشر</span>'}</td>
+      <td>${m.warns ? `<span class="tag off w">${m.warns}</span>` : '0'}</td></tr>` +
+      (by[m.id] || []).map(w => `<tr><td colspan="3" class="wl"><div class="warn-item"><div>${esc(w.reason)}<div class="m">بواسطة ${esc(w.by)} · ${fdate(w.at)}</div></div><button class="btn sm danger" data-delw="${esc(w.id)}" data-sid="${esc(st.sector.id)}">حذف</button></div></td></tr>`).join('')).join('');
+    return `<details class="glass box" open data-sid="${esc(st.sector.id)}"><summary><b>${esc(st.sector.name)}</b><span class="tools"><span class="tag">${st.totals.members} فرد</span><span class="tag ${st.totals.warnings ? 'off w' : ''}">${st.totals.warnings} تحذير</span></span></summary>
+      <div class="form-row"><select class="w-user">${st.members.map(m => `<option value="${esc(m.id)}">${esc(m.name)}</option>`).join('')}</select><input type="text" class="w-reason" placeholder="سبب التحذير" maxlength="300"><button class="btn primary" data-addw="1">إضافة تحذير</button></div>
+      <div class="scroll">${st.members.length ? `<table><thead><tr><th>العضو</th><th>الحالة</th><th>التحذيرات</th></tr></thead><tbody>${rows}</tbody></table>` : '<div class="empty">ما فيه أعضاء في رتبة القطاع.</div>'}</div></details>`;
+  }).join('') : '<div class="glass empty">أضف قطاعات أولاً.</div>';
+}
+$('#warnAdmin').addEventListener('click', e => {
+  const b = e.target.closest('button'); if (!b) return;
+  const sid = (b.closest('[data-sid]') || b).dataset.sid;
+  if (b.dataset.addw) { const d = b.closest('details'); act(async () => { await api('/api/sectors/' + sid + '/warnings', {method: 'POST', body: {userId: $('.w-user', d).value, reason: $('.w-reason', d).value}}); toast('تمت إضافة التحذير'); await loadWarn(); }); }
+  if (b.dataset.delw && confirm('حذف هذا التحذير؟')) act(async () => { await api('/api/sectors/' + b.dataset.sid + '/warnings/' + b.dataset.delw, {method: 'DELETE'}); await loadWarn(); });
 });
 
 /* ---------- المظهر ---------- */

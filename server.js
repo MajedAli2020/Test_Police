@@ -60,12 +60,16 @@ const isId = (s) => /^\d{15,22}$/.test(String(s));
 
 /* ------------------------------- الصلاحيات ------------------------------- */
 const isOwner = (id) => id === CFG.owner;
-const userSectors = (id) =>
-  isOwner(id)
-    ? db.sectors.map((s) => s.id)
-    : ((db.users[id] && db.users[id].sectors) || []).filter((sid) => db.sectors.some((s) => s.id === sid));
+const viaRole = (id, s) => { const m = s.managerRoleId && client.guilds.cache.get(CFG.guildId)?.members.cache.get(id); return !!(m && m.roles.cache.has(s.managerRoleId)); };
+const manual = (id) => (db.users[id] && db.users[id].sectors) || [];
+const userSectors = (id) => db.sectors.filter((s) => isOwner(id) || manual(id).includes(s.id) || viaRole(id, s)).map((s) => s.id);
 const canView = (id, sid) => userSectors(id).includes(sid);
-const canEdit = (id, sid) => isOwner(id) || (!!(db.users[id] && db.users[id].canEdit) && canView(id, sid));
+const canEdit = (id, sid) => {
+  if (isOwner(id)) return true;
+  const s = db.sectors.find((x) => x.id === sid);
+  if (!s) return false;
+  return (!!(db.users[id] && db.users[id].canEdit) && manual(id).includes(sid)) || (!!s.managerCanEdit && viaRole(id, s));
+};
 
 /* -------------------------------- دسكورد -------------------------------- */
 const client = new Client({ intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMembers] });
@@ -378,7 +382,8 @@ app.get('/api/branding', (req, res) => {
   res.json({ siteName: s.siteName, accent: s.accent, overlay: s.overlay, logo: s.logo, loginBg: s.loginBg, dashBg: s.dashBg });
 });
 
-app.get('/api/me', auth, (req, res) => {
+app.get('/api/me', auth, async (req, res) => {
+  await getGuild();
   const ids = userSectors(req.user.id);
   res.json({
     user: { id: req.user.id, name: req.user.name, avatar: req.user.avatar },
@@ -462,14 +467,25 @@ app.get('/api/admin/data', auth, ownerOnly, async (req, res) => {
   });
 });
 
+app.get('/api/admin/overview', auth, ownerOnly, async (req, res) => res.json(await Promise.all(db.sectors.map(sectorStats))));
+
 function cleanSector(b) {
   const name = String(b.name || '').trim().slice(0, 60);
-  if (!name || !isId(b.roleId)) return null;
-  return { name, roleId: String(b.roleId), officerRoleId: isId(b.officerRoleId) ? String(b.officerRoleId) : '' };
+  if (!name) return null;
+  return {
+    name, roleId: isId(b.roleId) ? String(b.roleId) : '',
+    officerRoleId: isId(b.officerRoleId) ? String(b.officerRoleId) : '',
+    managerRoleId: isId(b.managerRoleId) ? String(b.managerRoleId) : '',
+    managerCanEdit: !!b.managerCanEdit,
+  };
 }
-app.post('/api/admin/sectors', auth, ownerOnly, (req, res) => {
+app.post('/api/admin/sectors', auth, ownerOnly, async (req, res) => {
   const c = cleanSector(req.body || {});
-  if (!c) return res.status(400).json({ error: 'اكتب اسم القطاع واختر رتبة الأعضاء' });
+  if (!c) return res.status(400).json({ error: 'اكتب اسم القطاع' });
+  if (!c.roleId) { // ما اخترت رتبة: ننشئ رتبة للقطاع تلقائياً
+    try { c.roleId = (await (await getGuild()).roles.create({ name: c.name, reason: 'إنشاء قطاع من لوحة الإدارة' })).id; }
+    catch { return res.status(400).json({ error: 'ما قدرت أنشئ الرتبة. أعطِ البوت صلاحية إدارة الرتب أو اختر رتبة موجودة' }); }
+  }
   db.sectors.push({ id: uid(), ...c });
   save();
   res.json({ ok: true });
@@ -477,7 +493,7 @@ app.post('/api/admin/sectors', auth, ownerOnly, (req, res) => {
 app.put('/api/admin/sectors/:id', auth, ownerOnly, (req, res) => {
   const s = db.sectors.find((x) => x.id === req.params.id);
   const c = cleanSector(req.body || {});
-  if (!s || !c) return res.status(400).json({ error: 'بيانات غير صالحة' });
+  if (!s || !c || !c.roleId) return res.status(400).json({ error: 'بيانات غير صالحة' });
   Object.assign(s, c);
   save();
   res.json({ ok: true });
